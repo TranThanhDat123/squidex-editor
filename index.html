@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!--
       Squidex Custom Field Editor: Add-ons Category (auto by referenced offer)
-      Gắn editor này vào 1 field kiểu Tags (invariant), ví dụ: addOnsCategory
-      Field rule / addOnType KHÔNG còn cần nữa.
+      Attach this editor to a Tags field (invariant), e.g. addOnsCategory.
+      The addOnType field / field rules are no longer needed.
     -->
     <script src="https://cloud.squidex.io/scripts/editor-sdk.js"></script>
     <style>
@@ -60,22 +60,22 @@
     <div id="root"></div>
 
     <script>
-        // ====== CẤU HÌNH ======
-        // Tên schema của Offer (schema chứa serviceType).
+        // ====== CONFIG ======
+        // Offer schema name (the schema that contains serviceType).
         var OFFER_SCHEMA = 'offer-master-data';
 
-        // Tên schema chứa danh sách category (user tự quản lý content trong CMS).
-        // Mỗi content có field: name (String) + serviceType ('prepaid'|'postpaid').
+        // Schema holding the category list (managed as content in the CMS by users).
+        // Each content has fields: name (String) + serviceType ('prepaid'|'postpaid').
         var CATEGORY_SCHEMA = 'addon-category';
-        // =======================
+        // =====================
 
         var root = document.getElementById('root');
         var field = new SquidexFormField();
 
-        var currentValue = [];   // mảng category đang chọn
+        var currentValue = [];   // currently selected categories
         var currentOfferId = null;
         var currentServiceType = null;
-        var currentList = [];    // danh sách category (name) đọc từ CMS
+        var currentList = [];    // category names loaded from the CMS
         var isDisabled = false;
 
         function renderHint(text) {
@@ -85,16 +85,16 @@
             root.innerHTML = '<div class="error">' + text + '</div>';
         }
 
-        // Đọc token + apiUrl từ context để gọi API resolve reference.
+        // Read token + apiUrl from context to call the API and resolve references.
         function getAuthHeader(context) {
             var u = context && context.user ? context.user : {};
-            // Tùy phiên bản Squidex: có bản trả accessToken, có bản trả token (đã kèm "Bearer").
+            // Depends on Squidex version: some return accessToken, others return token (already prefixed with "Bearer").
             if (u.accessToken) return 'Bearer ' + u.accessToken;
             if (u.token) return (String(u.token).indexOf('Bearer') === 0 ? u.token : 'Bearer ' + u.token);
             return null;
         }
 
-        // Lấy serviceType của offer được reference.
+        // Get the serviceType of the referenced offer.
         function resolveServiceType(offerId) {
             var context = field.getContext();
             var auth = getAuthHeader(context);
@@ -119,7 +119,7 @@
 
                 var st = null;
                 if (sv !== undefined && sv !== null) {
-                    // Xử lý cả 2 dạng: {iv: 'prepaid'} hoặc 'prepaid' (đã flatten)
+                    // Handle both shapes: {iv: 'prepaid'} or 'prepaid' (flattened)
                     st = (typeof sv === 'object' && 'iv' in sv) ? sv.iv : sv;
                 }
                 console.log('[addons-editor] serviceType resolved:', st);
@@ -127,7 +127,7 @@
             });
         }
 
-        // Đọc danh sách category từ schema addon-category, lọc theo serviceType.
+        // Load the category list from the addon-category schema, filtered by serviceType.
         function fetchCategories(serviceType) {
             var context = field.getContext();
             var auth = getAuthHeader(context);
@@ -161,12 +161,12 @@
 
         function renderCheckboxes(serviceType, list) {
             if (!list || !list.length) {
-                renderHint('Chưa có category nào cho serviceType = "' + serviceType +
-                    '". Thêm content trong schema "' + CATEGORY_SCHEMA + '" (nhớ Publish).');
+                renderHint('No categories found for serviceType = "' + serviceType +
+                    '". Add content in the "' + CATEGORY_SCHEMA + '" schema (remember to Publish).');
                 return;
             }
 
-            // Bỏ những giá trị đang chọn nhưng không còn hợp lệ với serviceType mới.
+            // Drop selected values that are no longer valid for the new serviceType.
             currentValue = currentValue.filter(function (v) { return list.indexOf(v) > -1; });
 
             var html = '<span class="badge ' + serviceType + '">' + serviceType + '</span>';
@@ -194,7 +194,7 @@
             });
         }
 
-        // Khi form thay đổi: phát hiện reference offer đã chọn.
+        // On form change: detect the selected offer reference.
         function handleFormValue(formValue) {
             var ref = formValue && formValue.zsmartOffer ? formValue.zsmartOffer.iv : null;
             var offerId = (ref && ref.length) ? ref[0] : null;
@@ -202,39 +202,39 @@
             if (!offerId) {
                 currentOfferId = null;
                 currentServiceType = null;
-                renderHint('Hãy chọn một Offer ở field "zsmartOffer" trước — category sẽ tự hiện theo prepaid/postpaid của offer.');
+                renderHint('Select an Offer in the "zsmartOffer" field first - categories will appear automatically based on the offer\'s prepaid/postpaid type.');
                 return;
             }
 
             if (offerId === currentOfferId && currentServiceType) {
-                // reference không đổi -> chỉ cần re-render (dùng list đã cache)
+                // Reference unchanged -> just re-render (use the cached list).
                 renderCheckboxes(currentServiceType, currentList);
                 return;
             }
 
             currentOfferId = offerId;
-            renderHint('Đang tải thông tin offer...');
+            renderHint('Loading offer info...');
 
             resolveServiceType(offerId)
                 .then(function (serviceType) {
                     currentServiceType = serviceType;
                     if (!serviceType) {
-                        renderError('Không đọc được serviceType của offer. Kiểm tra tên schema OFFER_SCHEMA (hiện: "' + OFFER_SCHEMA + '").');
+                        renderError('Could not read the offer\'s serviceType. Check the OFFER_SCHEMA name (currently: "' + OFFER_SCHEMA + '").');
                         return;
                     }
-                    renderHint('Đang tải danh sách category...');
+                    renderHint('Loading category list...');
                     return fetchCategories(serviceType).then(function (list) {
                         currentList = list;
                         renderCheckboxes(serviceType, list);
                     });
                 })
                 .catch(function (err) {
-                    renderError('Lỗi khi tải dữ liệu: ' + err.message +
-                        '. Kiểm tra tên schema OFFER_SCHEMA / CATEGORY_SCHEMA và quyền đọc content.');
+                    renderError('Failed to load data: ' + err.message +
+                        '. Check the OFFER_SCHEMA / CATEGORY_SCHEMA names and content read permissions.');
                 });
         }
 
-        // ===== Đăng ký sự kiện SDK =====
+        // ===== Register SDK events =====
         field.onValueChanged(function (value) {
             currentValue = Array.isArray(value) ? value.slice() : [];
         });
@@ -248,7 +248,7 @@
             handleFormValue(formValue);
         });
 
-        renderHint('Đang khởi tạo...');
+        renderHint('Initializing...');
     </script>
 </body>
 </html>
