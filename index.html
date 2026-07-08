@@ -110,10 +110,10 @@
             var url = context.apiUrl + '/content/' + context.appName + '/' + OFFER_SCHEMA + '/' + offerId;
 
             return fetch(url, {
+                cache: 'no-store',
                 headers: {
                     'Authorization': auth,
-                    'Accept': 'application/json',
-                    'X-Flatten': '' // giữ nguyên dạng {iv:...}
+                    'Accept': 'application/json'
                 }
             })
             .then(function (res) {
@@ -121,8 +121,17 @@
                 return res.json();
             })
             .then(function (content) {
-                var st = content && content.data && content.data.serviceType
-                    ? content.data.serviceType.iv : null;
+                console.log('[addons-editor] offer content:', content);
+
+                var data = content && content.data ? content.data : {};
+                var sv = data.serviceType;
+
+                var st = null;
+                if (sv !== undefined && sv !== null) {
+                    // Xử lý cả 2 dạng: {iv: 'prepaid'} hoặc 'prepaid' (đã flatten)
+                    st = (typeof sv === 'object' && 'iv' in sv) ? sv.iv : sv;
+                }
+                console.log('[addons-editor] serviceType resolved:', st);
                 return st;
             });
         }
