@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Squidex Custom Field Editor: Add-ons Category (auto by referenced offer)
+      Gắn editor này vào 1 field kiểu Tags (invariant), ví dụ: addOnsCategory
+      Field rule / addOnType KHÔNG còn cần nữa.
+    -->
+    <script src="https://cloud.squidex.io/scripts/editor-sdk.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            color: #2c2c2c;
+            margin: 0;
+            padding: 4px 2px;
+        }
+        .hint {
+            color: #777;
+            font-style: italic;
+            padding: 6px 2px;
+        }
+        .error {
+            color: #c0392b;
+            padding: 6px 2px;
+        }
+        .badge {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+        }
+        .badge.prepaid  { background: #e8f4fd; color: #1f6fb2; }
+        .badge.postpaid { background: #fdeef0; color: #b23a4a; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 4px 14px;
+        }
+        label.opt {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 3px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        label.opt:hover { background: #f4f6f8; }
+        input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script>
+        // ====== CẤU HÌNH ======
+        // Tên schema của Offer (schema chứa serviceType). Đổi cho khớp app của bạn.
+        var OFFER_SCHEMA = 'offer-master-data';
+
+        // Bộ category theo serviceType của offer được reference.
+        var CATEGORIES = {
+            prepaid: [
+                'Ultra5G Tourist', 'ULTRA Football Fest', 'Monthly',
+                'Daily and Weekly', 'Extra', 'Hotspot', 'High Speed',
+                'ULTRA5G Priority', 'Roam & Travel', 'Others'
+            ],
+            postpaid: [
+                'ULTRA Football Fest', 'Device Care', 'ULTRA5G Priority',
+                'Bonus', 'Sooka VIP', 'Talk Plus', 'Roam & Travel',
+                'Watch Plan', 'Booster', 'SMS', 'MB', 'Enterprise', 'WB'
+            ]
+        };
+        // =======================
+
+        var root = document.getElementById('root');
+        var field = new SquidexFormField();
+
+        var currentValue = [];   // mảng category đang chọn
+        var currentOfferId = null;
+        var currentServiceType = null;
+        var isDisabled = false;
+
+        function renderHint(text) {
+            root.innerHTML = '<div class="hint">' + text + '</div>';
+        }
+        function renderError(text) {
+            root.innerHTML = '<div class="error">' + text + '</div>';
+        }
+
+        // Đọc token + apiUrl từ context để gọi API resolve reference.
+        function getAuthHeader(context) {
+            var u = context && context.user ? context.user : {};
+            // Tùy phiên bản Squidex: có bản trả accessToken, có bản trả token (đã kèm "Bearer").
+            if (u.accessToken) return 'Bearer ' + u.accessToken;
+            if (u.token) return (String(u.token).indexOf('Bearer') === 0 ? u.token : 'Bearer ' + u.token);
+            return null;
+        }
+
+        // Lấy serviceType của offer được reference.
+        function resolveServiceType(offerId) {
+            var context = field.getContext();
+            var auth = getAuthHeader(context);
+            var url = context.apiUrl + '/content/' + context.appName + '/' + OFFER_SCHEMA + '/' + offerId;
+
+            return fetch(url, {
+                headers: {
+                    'Authorization': auth,
+                    'Accept': 'application/json',
+                    'X-Flatten': '' // giữ nguyên dạng {iv:...}
+                }
+            })
+            .then(function (res) {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(function (content) {
+                var st = content && content.data && content.data.serviceType
+                    ? content.data.serviceType.iv : null;
+                return st;
+            });
+        }
+
+        function renderCheckboxes(serviceType) {
+            var list = CATEGORIES[serviceType];
+
+            if (!list) {
+                renderHint('Offer có serviceType = "' + serviceType +
+                    '" không có bộ category tương ứng. Chỉ hỗ trợ prepaid / postpaid.');
+                return;
+            }
+
+            // Bỏ những giá trị đang chọn nhưng không còn hợp lệ với serviceType mới.
+            currentValue = currentValue.filter(function (v) { return list.indexOf(v) > -1; });
+
+            var html = '<span class="badge ' + serviceType + '">' + serviceType + '</span>';
+            html += '<div class="grid">';
+            list.forEach(function (cat) {
+                var checked = currentValue.indexOf(cat) > -1 ? 'checked' : '';
+                var dis = isDisabled ? 'disabled' : '';
+                html += '<label class="opt">' +
+                    '<input type="checkbox" value="' + cat.replace(/"/g, '&quot;') + '" ' + checked + ' ' + dis + '/>' +
+                    '<span>' + cat + '</span>' +
+                    '</label>';
+            });
+            html += '</div>';
+            root.innerHTML = html;
+
+            var boxes = root.querySelectorAll('input[type="checkbox"]');
+            boxes.forEach(function (box) {
+                box.addEventListener('change', function () {
+                    var selected = [];
+                    boxes.forEach(function (b) { if (b.checked) selected.push(b.value); });
+                    currentValue = selected;
+                    field.valueChanged(selected.length ? selected : null);
+                    field.touched();
+                });
+            });
+        }
+
+        // Khi form thay đổi: phát hiện reference offer đã chọn.
+        function handleFormValue(formValue) {
+            var ref = formValue && formValue.zsmartOffer ? formValue.zsmartOffer.iv : null;
+            var offerId = (ref && ref.length) ? ref[0] : null;
+
+            if (!offerId) {
+                currentOfferId = null;
+                currentServiceType = null;
+                renderHint('Hãy chọn một Offer ở field "zsmartOffer" trước — category sẽ tự hiện theo prepaid/postpaid của offer.');
+                return;
+            }
+
+            if (offerId === currentOfferId && currentServiceType) {
+                // reference không đổi -> chỉ cần re-render (giữ nguyên serviceType)
+                renderCheckboxes(currentServiceType);
+                return;
+            }
+
+            currentOfferId = offerId;
+            renderHint('Đang tải thông tin offer...');
+
+            resolveServiceType(offerId)
+                .then(function (serviceType) {
+                    currentServiceType = serviceType;
+                    if (!serviceType) {
+                        renderError('Không đọc được serviceType của offer. Kiểm tra tên schema OFFER_SCHEMA (hiện: "' + OFFER_SCHEMA + '").');
+                        return;
+                    }
+                    renderCheckboxes(serviceType);
+                })
+                .catch(function (err) {
+                    renderError('Lỗi khi resolve offer: ' + err.message +
+                        '. Kiểm tra OFFER_SCHEMA và quyền đọc content.');
+                });
+        }
+
+        // ===== Đăng ký sự kiện SDK =====
+        field.onValueChanged(function (value) {
+            currentValue = Array.isArray(value) ? value.slice() : [];
+        });
+
+        field.onDisabled(function (disabled) {
+            isDisabled = disabled;
+            if (currentServiceType) renderCheckboxes(currentServiceType);
+        });
+
+        field.onFormValueChanged(function (formValue) {
+            handleFormValue(formValue);
+        });
+
+        renderHint('Đang khởi tạo...');
+    </script>
+</body>
+</html>
