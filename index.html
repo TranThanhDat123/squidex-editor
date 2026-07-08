@@ -61,22 +61,12 @@
 
     <script>
         // ====== CẤU HÌNH ======
-        // Tên schema của Offer (schema chứa serviceType). Đổi cho khớp app của bạn.
+        // Tên schema của Offer (schema chứa serviceType).
         var OFFER_SCHEMA = 'offer-master-data';
 
-        // Bộ category theo serviceType của offer được reference.
-        var CATEGORIES = {
-            prepaid: [
-                'Ultra5G Tourist', 'ULTRA Football Fest', 'Monthly',
-                'Daily and Weekly', 'Extra', 'Hotspot', 'High Speed',
-                'ULTRA5G Priority', 'Roam & Travel', 'Others'
-            ],
-            postpaid: [
-                'ULTRA Football Fest', 'Device Care', 'ULTRA5G Priority',
-                'Bonus', 'Sooka VIP', 'Talk Plus', 'Roam & Travel',
-                'Watch Plan', 'Booster', 'SMS', 'MB', 'Enterprise', 'WB'
-            ]
-        };
+        // Tên schema chứa danh sách category (user tự quản lý content trong CMS).
+        // Mỗi content có field: name (String) + serviceType ('prepaid'|'postpaid').
+        var CATEGORY_SCHEMA = 'addon-category';
         // =======================
 
         var root = document.getElementById('root');
@@ -85,6 +75,7 @@
         var currentValue = [];   // mảng category đang chọn
         var currentOfferId = null;
         var currentServiceType = null;
+        var currentList = [];    // danh sách category (name) đọc từ CMS
         var isDisabled = false;
 
         function renderHint(text) {
@@ -136,12 +127,42 @@
             });
         }
 
-        function renderCheckboxes(serviceType) {
-            var list = CATEGORIES[serviceType];
+        // Đọc danh sách category từ schema addon-category, lọc theo serviceType.
+        function fetchCategories(serviceType) {
+            var context = field.getContext();
+            var auth = getAuthHeader(context);
+            var filter = encodeURIComponent("data/serviceType/iv eq '" + serviceType + "'");
+            var url = context.apiUrl + '/content/' + context.appName + '/' + CATEGORY_SCHEMA +
+                '?$filter=' + filter + '&$top=200';
 
-            if (!list) {
-                renderHint('Offer có serviceType = "' + serviceType +
-                    '" không có bộ category tương ứng. Chỉ hỗ trợ prepaid / postpaid.');
+            return fetch(url, {
+                cache: 'no-store',
+                headers: {
+                    'Authorization': auth,
+                    'Accept': 'application/json'
+                }
+            })
+            .then(function (res) {
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return res.json();
+            })
+            .then(function (result) {
+                console.log('[addons-editor] category result:', result);
+                var items = (result && result.items) ? result.items : [];
+                var list = items.map(function (item) {
+                    var nm = item.data ? item.data.name : null;
+                    if (nm && typeof nm === 'object' && 'iv' in nm) return nm.iv;
+                    return nm;
+                }).filter(function (v) { return v; });
+                console.log('[addons-editor] categories for ' + serviceType + ':', list);
+                return list;
+            });
+        }
+
+        function renderCheckboxes(serviceType, list) {
+            if (!list || !list.length) {
+                renderHint('Chưa có category nào cho serviceType = "' + serviceType +
+                    '". Thêm content trong schema "' + CATEGORY_SCHEMA + '" (nhớ Publish).');
                 return;
             }
 
@@ -186,8 +207,8 @@
             }
 
             if (offerId === currentOfferId && currentServiceType) {
-                // reference không đổi -> chỉ cần re-render (giữ nguyên serviceType)
-                renderCheckboxes(currentServiceType);
+                // reference không đổi -> chỉ cần re-render (dùng list đã cache)
+                renderCheckboxes(currentServiceType, currentList);
                 return;
             }
 
@@ -201,11 +222,15 @@
                         renderError('Không đọc được serviceType của offer. Kiểm tra tên schema OFFER_SCHEMA (hiện: "' + OFFER_SCHEMA + '").');
                         return;
                     }
-                    renderCheckboxes(serviceType);
+                    renderHint('Đang tải danh sách category...');
+                    return fetchCategories(serviceType).then(function (list) {
+                        currentList = list;
+                        renderCheckboxes(serviceType, list);
+                    });
                 })
                 .catch(function (err) {
-                    renderError('Lỗi khi resolve offer: ' + err.message +
-                        '. Kiểm tra OFFER_SCHEMA và quyền đọc content.');
+                    renderError('Lỗi khi tải dữ liệu: ' + err.message +
+                        '. Kiểm tra tên schema OFFER_SCHEMA / CATEGORY_SCHEMA và quyền đọc content.');
                 });
         }
 
@@ -216,7 +241,7 @@
 
         field.onDisabled(function (disabled) {
             isDisabled = disabled;
-            if (currentServiceType) renderCheckboxes(currentServiceType);
+            if (currentServiceType) renderCheckboxes(currentServiceType, currentList);
         });
 
         field.onFormValueChanged(function (formValue) {
